@@ -66,6 +66,9 @@ async function searchPage(ctx, q, o, page) {
     if (o.since) p.set("after_date", o.since);
     if (o.until) p.set("before_date", o.until);
   }
+  if (o.goal) p.set("purpose", o.goal);
+  if (o.country) p.set("location", o.country);
+  if (o.lang) p.set("language", o.lang);
   if (page > 0) p.set("page", String(page));
   return call(`${SEARCH_URL}?${p}`, { headers: headers(ctx), timeout: timeoutFor(ctx, 30_000) });
 }
@@ -89,6 +92,7 @@ export const tinyfish = {
         out.push("--recent/--since/--until apply to papers by publication year only (pub_year_min/pub_year_max)");
       }
       if (o.recentMin && o.recentMin > MAX_RECENCY_MIN && o.cat !== "papers") out.push("--recent capped at 10 years");
+      if (op === "answer") out.push(...no(["deep", "fast", "schema"], "has no effect (TinyFish has no answer endpoint; returning search results)"));
     }
     return out;
   },
@@ -138,6 +142,9 @@ export const tinyfish = {
     const timeout = timeoutFor(ctx, 90_000);
     /** @type {Record<string, any>} */
     const body = { urls, format: "markdown", per_url_timeout_ms: perUrlTimeout(timeout) };
+    if (o.fresh) body.ttl = 0;
+    if (o.links) body.links = true;
+    if (o.goal) body.purpose = o.goal;
     const j = await call(FETCH_URL, { method: "POST", headers: headers(ctx), body, timeout });
     /** @type {Map<string, import("../types.mjs").Page>} */
     const pages = new Map();
@@ -148,6 +155,7 @@ export const tinyfish = {
       if (o.focus) text = focusText(text, o.focus, o.max);
       /** @type {import("../types.mjs").Page} */
       const page = { url: u, title: clean(r.title), text, truncated: false };
+      if (o.links) page.links = Array.isArray(r.links) ? r.links : [];
       pages.set(u, page);
     }
     for (const e of j.errors ?? []) log(ctx, `tinyfish: ${e.url}: ${clean(e.error)}${e.status ? ` (HTTP ${e.status})` : ""}`);

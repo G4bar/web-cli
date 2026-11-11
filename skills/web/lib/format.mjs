@@ -32,6 +32,8 @@ export function printSources(ctx, citations) {
   }
 }
 
+/** Answer body: a string as is, a structured answer as JSON. */
+export const answerBody = (/** @type {string | Record<string, any>} */ a) => (typeof a === "string" ? a : JSON.stringify(a, null, 2));
 
 /**
  * One fetched page, truncated to `max` characters.

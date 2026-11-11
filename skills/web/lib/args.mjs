@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { UsageError } from "./errors.mjs";
 import { flagName, list } from "./util.mjs";
 import { EXA_CAT, EXA_LEGACY_TYPES, EXA_TYPES } from "./providers/exa.mjs";
+import { loadSchema } from "./schema.mjs";
 
 /** @typedef {import("./types.mjs").Opts} Opts */
 
@@ -11,7 +12,7 @@ export const HELP = `web — web search & page fetch (Exa, falls back to TinyFis
 USAGE
   web search <query> [options]     ranked results + short excerpts
   web fetch  <url...> [options]    page content as markdown (max 10 URLs)
-  web answer <question>            cited answer (Exa; falls back to search results)
+  web answer <question> [options]  cited answer (Exa; falls back to search results)
 
 SEARCH OPTIONS
   -n <num>            results (default 8)
@@ -21,12 +22,23 @@ SEARCH OPTIONS
   --since YYYY-MM-DD  --until YYYY-MM-DD
   --cat <c>           news | papers | company | people | personal | financial
   --type <t>          Exa only: auto (default) | lite | deep-lite | deep
-                      (deep* returns ranked results only, no synthesis)
+                      (deep* return ranked results only; use "answer --deep" for a synthesis)
   --chars <num>       excerpt size per result (default 600)
+  --goal "<text>"     what you are after: Exa objective / TinyFish purpose
+  --country XX        ISO country for localisation (Exa userLocation / TinyFish location)
+  --lang xx           result language (TinyFish only; Exa has no language filter)
 
 FETCH OPTIONS
   --max <num>         max chars per page (default 8000)
   --focus "<text>"    return only the passages most relevant to this text
+  --goal "<text>"     why you are fetching (TinyFish purpose; ignored by Exa)
+  --fresh             bypass the cache: live content
+  --links             also list the page's outbound links (deduped, max 100)
+
+ANSWER OPTIONS (also accepts the search options above)
+  --deep              synthesize with Exa deep search instead of /answer
+  --fast              with --deep: use deep-lite (faster)
+  --schema <f|json>   structured answer: JSON Schema file or inline JSON ("type": "object")
 
 COMMON
   -p, --provider <p>  exa | tinyfish: force one provider, no fallback
@@ -56,17 +68,25 @@ const OPTIONS = /** @type {const} */ ({
   chars: { type: "string" },
   max: { type: "string" },
   focus: { type: "string" },
+  goal: { type: "string" },
+  country: { type: "string" },
+  lang: { type: "string" },
+  deep: { type: "boolean" },
+  fast: { type: "boolean" },
+  schema: { type: "string" },
+  fresh: { type: "boolean" },
+  links: { type: "boolean" },
   provider: { type: "string", short: "p" },
   json: { type: "boolean" },
   help: { type: "boolean", short: "h" },
 });
 
 /** Flags that have a meaning for each command; others are reported as ignored. */
-const SEARCH_FLAGS = ["n", "site", "exclude", "recent", "since", "until", "cat", "type", "chars"];
+const SEARCH_FLAGS = ["n", "site", "exclude", "recent", "since", "until", "cat", "type", "chars", "goal", "country", "lang"];
 const SCOPE = /** @type {Record<string, string[]>} */ ({
   search: [...SEARCH_FLAGS, "provider", "json"],
-  answer: [...SEARCH_FLAGS, "provider", "json"],
-  fetch: ["max", "focus", "provider", "json"],
+  answer: [...SEARCH_FLAGS, "deep", "fast", "schema", "provider", "json"],
+  fetch: ["max", "focus", "goal", "fresh", "links", "provider", "json"],
 });
 
 /** Parse `5h`, `7d`, `2w` into minutes. */
@@ -125,6 +145,10 @@ export function parseCli(argv) {
   const since = date("--since", v.since);
   const until = date("--until", v.until);
   if (since && until && since > until) throw new UsageError(`--since ${since} is after --until ${until}`);
+  if (v.fast && !v.deep) throw new UsageError("--fast only applies together with --deep");
+  if (v.goal !== undefined && (!v.goal.trim() || v.goal.length > 2000)) throw new UsageError("--goal must be 1-2000 characters");
+  if (v.country !== undefined && !/^[A-Za-z]{2}$/.test(v.country)) throw new UsageError(`bad --country "${v.country}" (two-letter ISO code, e.g. US)`);
+  if (v.lang !== undefined && !/^[A-Za-z]{2}$/.test(v.lang)) throw new UsageError(`bad --lang "${v.lang}" (two-letter code, e.g. en)`);
 
   /** @type {Opts} */
   const opts = {
@@ -141,7 +165,16 @@ export function parseCli(argv) {
     focus: v.focus?.trim() || undefined,
     provider: v.provider,
     json: !!v.json,
+    goal: v.goal?.trim(),
+    country: v.country?.toUpperCase(),
+    lang: v.lang?.toLowerCase(),
+    deep: !!v.deep,
+    fast: !!v.fast,
+    fresh: !!v.fresh,
+    links: !!v.links,
     given,
   };
+  // The schema is only read where it is used, so a stray --schema elsewhere is just a warning.
+  if (v.schema !== undefined && cmd === "answer") opts.schema = loadSchema(v.schema);
   return { cmd, rest, opts, warnings };
 }

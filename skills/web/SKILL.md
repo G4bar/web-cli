@@ -11,14 +11,14 @@ Output is compact text on stdout; provider errors and fallbacks go to stderr.
 ## Commands
 
 ```bash
-web search "query" [-n 8] [--site a.com,b.org] [--exclude x.com] [--recent 7d] [--cat news|papers|company|people|personal|financial]
-web fetch  <url...> [--max 8000] [--focus "what you need"]
-web answer "question"
+web search "query" [-n 8] [--site a.com,b.org] [--exclude x.com] [--recent 7d] [--cat news|papers|company|people|personal|financial] [--goal "what for"]
+web fetch  <url...> [--max 8000] [--focus "what you need"] [--fresh] [--links]
+web answer "question" [--deep [--fast]] [--schema file.json|'{...}']
 ```
 
 - `search`: ranked results, each with title, URL, date and a short excerpt. Start here, then `fetch` only the 1-3 pages worth reading.
 - `fetch`: page as markdown, up to 10 URLs. Truncated at `--max` chars (the header says when). Prefer `--focus "..."` over raising `--max`: it keeps only the matching passages.
-- `answer`: short cited answer for a factual question. Falls back to plain search results when only TinyFish is available.
+- `answer`: short cited answer for a factual question. `--deep` = slower, multi-step synthesis (`--fast` for lighter); `--schema` = structured JSON answer. Falls back to plain search results when only TinyFish is available.
 
 ## Options worth knowing
 
@@ -27,6 +27,9 @@ web answer "question"
 | `--recent 12h\|7d\|2w`, `--since/--until YYYY-MM-DD` | freshness (not for `--cat papers` on TinyFish) |
 | `--site` / `--exclude` | restrict or drop domains (comma-separated). Don't put `site:` in the query |
 | `--type lite\|auto\|deep-lite\|deep` | Exa only. `lite` = fast and cheap, `deep*` = slower multi-step search; still returns results only, no synthesis. Default `auto` |
+| `--goal "..."` | say what you are after (search, fetch): helps ranking / extraction |
+| `--fresh` | fetch: live page, not cached. `--links`: also list the page's outbound links |
+| `--country US`, `--lang en` | localise results (`--lang` is TinyFish only) |
 | `-p exa\|tinyfish` | force one provider, no fallback |
 | `--json` | normalized JSON, for piping into `jq` |
 

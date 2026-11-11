@@ -53,16 +53,16 @@ Agents without skills: point them at `skills/web/SKILL.md` or at `web --help`.
 ## Usage
 
 ```bash
-web search "query" [-n 8] [--site a.com,b.org] [--exclude x.com] [--recent 7d] [--cat news|papers|...]
-web fetch  <url...> [--max 8000] [--focus "what you need"]
-web answer "question"
+web search "query" [-n 8] [--site a.com,b.org] [--exclude x.com] [--recent 7d] [--cat news|papers|...] [--goal "..."] [--country US] [--lang en]
+web fetch  <url...> [--max 8000] [--focus "what you need"] [--fresh] [--links]
+web answer "question" [--deep [--fast]] [--schema file.json|'{...}']
 ```
 
 | Command | What it does |
 |---|---|
 | `search` | Ranked results with title, URL, date and a short excerpt. |
-| `fetch` | Page as markdown, up to 10 URLs per call. `--focus` returns only the matching passages; `--max` caps the size. |
-| `answer` | Short answer with citations (Exa). On TinyFish, which has no answer endpoint, it returns search results instead. |
+| `fetch` | Page as markdown, up to 10 URLs per call. `--focus` returns only the matching passages; `--max` caps the size; `--fresh` bypasses the cache; `--links` appends the page's outbound links. |
+| `answer` | Short answer with citations (Exa `/answer`). `--deep` synthesizes with Exa deep search instead, `--schema` returns structured JSON. On TinyFish, which has no answer endpoint, it returns search results instead. |
 
 Options:
 
@@ -75,8 +75,14 @@ Options:
 | `--cat <c>` | `news`, `papers`, `company`, `people`, `personal`, `financial` (the last four are Exa-only) |
 | `--type <t>` | Exa only: `auto` (default), `lite`, `deep-lite`, `deep`. The `deep*` types return ranked results only, with no synthesized answer. |
 | `--chars <num>` | Excerpt size per result (default 600) |
+| `--goal "<text>"` | What you are after, in a sentence. Search: Exa `objective` / TinyFish `purpose`. Fetch: TinyFish `purpose` (Exa has no equivalent and says so). Max 2000 characters |
+| `--country XX`, `--lang xx` | Localisation. `--country` is Exa `userLocation` / TinyFish `location`; `--lang` is TinyFish `language` only (Exa has no language filter and says so) |
 | `--max <num>` | Max characters per fetched page (default 8000) |
 | `--focus "<text>"` | Keep only the passages most relevant to this text |
+| `--fresh` | `fetch`: live content, not the cache (Exa `maxAgeHours: 0`, TinyFish `ttl: 0`) |
+| `--links` | `fetch`: list the page's outbound links after its text: http(s) only, `#fragment` links dropped, deduplicated, first 100 (Exa `extras.links` / TinyFish `links`) |
+| `--deep`, `--fast` | `answer`: Exa deep search (`type: deep`, or `deep-lite` with `--fast`) with a synthesized answer and its cited sources, instead of `/answer`. Honours the search filters (`--site`, `--recent`, ...), which `/answer` ignores |
+| `--schema <file\|json>` | `answer`: structured answer printed as JSON. A JSON Schema file or inline JSON with `"type": "object"`. With `--deep` Exa's limits apply and are checked locally: at most 10 properties in total, 2 levels of nesting (an array counts as one), every array needs `items` |
 | `-p, --provider <p>` | `exa` or `tinyfish`: force one provider, no fallback |
 | `--json` | Normalized JSON on stdout |
 
@@ -107,7 +113,8 @@ Exit codes: `0` ok, `1` every provider failed, `2` bad usage or a request the pr
 |---|---|---|
 | Search | Semantic, excerpts picked for the query, all filters and categories | Ranked web results with snippets (up to `-n`, fetched in pages of 10), `news` and `papers` categories. For `papers`, `--since/--until/--recent` apply to the publication year |
 | Fetch `--focus` | Semantic highlights | Local keyword-based passage filter on the full page |
-| Answer | Yes | No (search results instead) |
+| Answer | Yes (`/answer`, or deep search with `--deep`) | No (search results instead) |
+| Links (`fetch --links`) | Main-content links | Every `<a href>` on the page |
 | Cost | Paid per request (about $0.007 per search, $0.005 per answer) | Free daily allowance, see [their pricing](https://www.tinyfish.ai/pricing) |
 
 Check each provider's docs for current limits and pricing: [Exa](https://exa.ai/docs), [TinyFish](https://docs.tinyfish.ai/).

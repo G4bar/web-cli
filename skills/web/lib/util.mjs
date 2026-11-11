@@ -1,6 +1,7 @@
 // @ts-check
 
 /** @typedef {import("./types.mjs").Ctx} Ctx */
+/** @typedef {import("./types.mjs").Citation} Citation */
 
 /** Collapse whitespace. */
 export const clean = (/** @type {unknown} */ s) => String(s ?? "").replace(/\s+/g, " ").trim();
@@ -55,4 +56,44 @@ export function urlKey(/** @type {string} */ u) {
   } catch {
     return u.replace(/#.*$/, "").replace(/\/+$/, "");
   }
+}
+
+/**
+ * Outbound links of a page: http(s) only, no pure #fragment links (relative, or
+ * absolute links back to the page itself), de-duplicated, capped.
+ *
+ * @param {string[]} raw
+ * @param {string[]} pageUrls  URLs the page is known by (requested, final)
+ * @param {number} cap
+ * @returns {{ links: string[], total: number }}
+ */
+export function cleanLinks(raw, pageUrls, cap) {
+  const self = new Set(pageUrls.map(urlKey));
+  const seen = new Set();
+  /** @type {string[]} */
+  const all = [];
+  for (const l of raw) {
+    if (typeof l !== "string") continue;
+    const u = l.trim();
+    if (!/^https?:\/\//i.test(u)) continue; // drops "#x", mailto:, javascript:, ...
+    if (u.includes("#") && self.has(urlKey(u))) continue; // same page, different anchor
+    const k = urlKey(u);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    all.push(u);
+  }
+  return { links: all.slice(0, cap), total: all.length };
+}
+
+/** Unique citations by URL, first title wins. */
+export function dedupeCitations(/** @type {Citation[]} */ cits) {
+  const seen = new Set();
+  /** @type {Citation[]} */
+  const out = [];
+  for (const c of cits) {
+    if (!c?.url || seen.has(c.url)) continue;
+    seen.add(c.url);
+    out.push(c);
+  }
+  return out;
 }

@@ -3,11 +3,14 @@ import { EXIT, ExitError, UsageError, isCallerError, messageOf } from "../errors
 import { asCallerFailure, preflight, warnIgnored } from "../fallback.mjs";
 import { printJson, trunc } from "../format.mjs";
 import { providerOrder } from "../providers/index.mjs";
-import { log } from "../util.mjs";
+import { cleanLinks, log } from "../util.mjs";
 
 /** @typedef {import("../types.mjs").Ctx} Ctx */
 /** @typedef {import("../types.mjs").Opts} Opts */
 /** @typedef {import("../types.mjs").Page} Page */
+
+/** Outbound links listed per page. */
+const LINK_CAP = 100;
 
 /**
  * @param {Ctx} ctx
@@ -47,13 +50,33 @@ export async function fetchPages(ctx, urls, o) {
   }
 
   const out = urls.filter((u) => done.has(u)).map((u) => /** @type {Page & { provider: string }} */ (done.get(u)));
+  const linksOf = (/** @type {Page & { provider: string }} */ page) => cleanLinks(page.links ?? [], [page.url], LINK_CAP);
+
+  /** Normalised page for --json: truncated text, cleaned links (only with --links). */
+  const pageJson = (/** @type {Page & { provider: string }} */ page) => {
+    const { links: _raw, ...rest } = page;
+    /** @type {Record<string, unknown>} */
+    const j = { ...rest, text: trunc(page, o.max).text };
+    if (o.links) {
+      const c = linksOf(page);
+      j.links = c.links;
+      j.linksTotal = c.total;
+    }
+    return j;
+  };
+
   if (o.json) {
-    printJson(ctx, { pages: out.map((x) => ({ ...x, text: trunc(x, o.max).text })), failed: pending, errors: errs });
+    printJson(ctx, { pages: out.map(pageJson), failed: pending, errors: errs });
   } else {
     for (const page of out) {
       const { text, total, cut } = trunc(page, o.max);
       const meta = [page.provider, `${total} chars`, cut ? `truncated to ${o.max} — use --max N or --focus "..."` : null].filter(Boolean).join(", ");
       ctx.out(`## ${page.url}${page.title ? ` — ${page.title}` : ""}  [${meta}]\n\n${text}\n`);
+      if (o.links) {
+        const { links, total: n } = linksOf(page);
+        if (!links.length) ctx.out(`Links: none returned by ${page.provider}\n`);
+        else ctx.out(`Links (${n}${n > links.length ? `, first ${links.length}` : ""}):\n${links.map((l) => `- ${l}`).join("\n")}\n`);
+      }
     }
   }
   for (const u of pending) log(ctx, `FAILED ${u}`);

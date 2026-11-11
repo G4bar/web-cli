@@ -1,16 +1,17 @@
 // @ts-check
 import { EXIT, ExitError, isCallerError, messageOf } from "../errors.mjs";
 import { asCallerFailure, preflight, warnIgnored } from "../fallback.mjs";
-import { printJson, printResults, printSources } from "../format.mjs";
+import { answerBody, printJson, printResults, printSources } from "../format.mjs";
 import { providerOrder } from "../providers/index.mjs";
+import { checkExaSearchSchema } from "../schema.mjs";
 import { log } from "../util.mjs";
 
 /** @typedef {import("../types.mjs").Ctx} Ctx */
 /** @typedef {import("../types.mjs").Opts} Opts */
 
 /**
- * `web answer`: Exa `/answer`; providers without an answer endpoint return plain
- * search results instead.
+ * `web answer`: Exa `/answer` (or deep search with --deep); providers without an
+ * answer endpoint return plain search results instead.
  *
  * @param {Ctx} ctx
  * @param {string} q
@@ -18,6 +19,8 @@ import { log } from "../util.mjs";
  */
 export async function answer(ctx, q, o) {
   const order = providerOrder(ctx, o.provider);
+  // Exa's /search (--deep) limits outputSchema; /answer does not.
+  if (o.deep && o.schema && order.some((p) => p.name === "exa")) checkExaSearchSchema(o.schema);
   preflight(order, "answer", o);
 
   /** @type {string[]} */
@@ -33,7 +36,8 @@ export async function answer(ctx, q, o) {
       if (p.answer) {
         const r = await p.answer(ctx, q, o);
         if (o.json) return printJson(ctx, { query: q, provider: p.name, ...r });
-        ctx.out(`# ${q} — ${p.name}${r.cost ? `, $${r.cost}` : ""}\n\n${r.answer}`);
+        const label = r.mode ? `${p.name} (${r.mode})` : p.name;
+        ctx.out(`# ${q} — ${label}${r.cost ? `, $${r.cost}` : ""}\n\n${answerBody(r.answer)}`);
         return printSources(ctx, r.citations);
       }
       log(ctx, `${p.name}: no answer endpoint, returning search results instead`);

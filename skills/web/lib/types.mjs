@@ -32,6 +32,14 @@
  * @property {string=} focus
  * @property {string=} provider
  * @property {boolean} json
+ * @property {string=} goal
+ * @property {string=} country           upper-case ISO 3166-1 alpha-2
+ * @property {string=} lang              lower-case ISO 639-1
+ * @property {boolean} deep
+ * @property {boolean} fast
+ * @property {Record<string, any>=} schema
+ * @property {boolean} fresh
+ * @property {boolean} links
  * @property {Set<string>} given         long names of the flags the user passed
  */
 
@@ -58,9 +66,11 @@
 
 /**
  * @typedef {Object} AnswerOutput
- * @property {string} answer
+ * @property {string | Record<string, any>} answer   string, or an object when a schema was given
  * @property {Citation[]} citations
  * @property {number=} cost
+ * @property {string=} mode                          "deep" | "deep-lite" for the /search based answer
+ * @property {any[]=} grounding
  */
 
 /**
@@ -69,6 +79,7 @@
  * @property {string} title
  * @property {string} text
  * @property {boolean} truncated      the provider already cut the text at --max
+ * @property {string[]=} links        raw outbound links, when --links was requested
  */
 
 /**
