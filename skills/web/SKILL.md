@@ -26,7 +26,7 @@ web answer "question"
 |---|---|
 | `--recent 12h\|7d\|2w`, `--since/--until YYYY-MM-DD` | freshness (not for `--cat papers` on TinyFish) |
 | `--site` / `--exclude` | restrict or drop domains (comma-separated). Don't put `site:` in the query |
-| `--type lite\|auto\|deep-lite\|deep` | Exa only. `lite` = fast and cheap, `deep*` = slower with synthesis. Default `auto` |
+| `--type lite\|auto\|deep-lite\|deep` | Exa only. `lite` = fast and cheap, `deep*` = slower multi-step search; still returns results only, no synthesis. Default `auto` |
 | `-p exa\|tinyfish` | force one provider, no fallback |
 | `--json` | normalized JSON, for piping into `jq` |
 
@@ -34,6 +34,6 @@ web answer "question"
 
 - Write the query as a natural-language description of the page you want, not bare keywords (Exa is semantic).
 - Save big output instead of printing it: `web fetch URL --max 100000 > /tmp/page.md`, then `rg`/`read` what you need.
-- Exit codes: `0` ok, `1` all providers failed, `2` bad usage, `3` fetch partially failed (stderr lists the URLs).
-- Fallback order is Exa then TinyFish (`WEB_PROVIDERS` env overrides). A provider whose key is missing is skipped.
+- Exit codes: `0` ok, `1` all providers failed, `2` bad usage or request rejected by the provider (no fallback, fix the flags), `3` fetch partially failed (stderr lists the URLs).
+- Fallback order is Exa then TinyFish (`WEB_PROVIDERS` env overrides). A provider whose key is missing is skipped. Warnings on stderr say which flags TinyFish could not honour.
 - `web --help` shows every option.
