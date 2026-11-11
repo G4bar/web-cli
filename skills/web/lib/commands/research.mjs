@@ -26,17 +26,26 @@ const PROGRESS_EVERY_MS = 60_000;
 const CONNECT_ERRORS = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT"]);
 
 /**
+ * HTTP statuses that prove no run was created: the provider refused the request
+ * (auth, billing, quota, not found, rate limit) or said it is unavailable (503).
+ * 500, 502 and 504 are deliberately absent: a crash or a gateway timeout can happen
+ * after the run was created, and falling back would then pay twice. 400/422 are
+ * caller errors, handled by `isCallerError`.
+ */
+const REFUSED_STATUSES = new Set([401, 402, 403, 404, 429, 503]);
+
+/**
  * May the same question be started on another provider after this failure?
- * Only when we know no run was created: the provider refused (any HTTP error except
- * 400/422, which `isCallerError` handles) or the connection was never established.
- * A timeout or a dropped connection may hide a run that did start: falling back
- * then could pay for the same question twice.
+ * Only when we know no run was created: the provider refused (see REFUSED_STATUSES)
+ * or the connection was never established. A timeout, a dropped connection or an
+ * ambiguous server error may hide a run that did start: falling back then could
+ * pay for the same question twice.
  *
  * @param {unknown} e
  */
 export function safeToFallBack(e) {
   if (!(e instanceof ProviderError)) return false;
-  if (e.kind === "http") return true;
+  if (e.kind === "http") return e.status !== undefined && REFUSED_STATUSES.has(e.status);
   if (e.kind === "network") return !!e.code && CONNECT_ERRORS.has(e.code);
   return e.kind === "bad_response" && e.code === "not_created";
 }

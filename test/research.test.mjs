@@ -63,7 +63,10 @@ describe("run ids and the start-fallback decision", () => {
 
   it("safeToFallBack: only when no run can exist", () => {
     const http = (/** @type {number} */ s) => new ProviderError("http", `HTTP ${s}`, { status: s });
-    for (const s of [401, 402, 403, 404, 429, 500, 502, 503]) assert.equal(safeToFallBack(http(s)), true, String(s));
+    for (const s of [401, 402, 403, 404, 429, 503]) assert.equal(safeToFallBack(http(s)), true, String(s));
+    // A crash or a gateway timeout may come after the run was created: never retry elsewhere.
+    for (const s of [500, 502, 504, 520]) assert.equal(safeToFallBack(http(s)), false, String(s));
+    assert.equal(safeToFallBack(new ProviderError("http", "HTTP ?")), false, "http error without a status");
     assert.equal(safeToFallBack(new ProviderError("network", "network: ECONNREFUSED", { code: "ECONNREFUSED" })), true);
     assert.equal(safeToFallBack(new ProviderError("network", "network: ENOTFOUND", { code: "ENOTFOUND" })), true);
     assert.equal(safeToFallBack(new ProviderError("network", "network: ECONNRESET", { code: "ECONNRESET" })), false);
@@ -251,7 +254,7 @@ describe("start fallback", () => {
     [`GET ${TF_RUN}/11111111-2222-3333-4444-555555555555`]: tfDone,
   };
 
-  for (const status of [401, 402, 403, 429, 500, 503]) {
+  for (const status of [401, 402, 403, 404, 429, 503]) {
     it(`Exa start HTTP ${status} -> TinyFish`, async () => {
       const r = await run(["research", Q, "--max-cost", "3"], { [`POST ${EXA_RUNS}`]: () => reply(status, { error: { message: "no" } }), ...tfHandlers });
       assert.equal(r.code, 0);
@@ -260,6 +263,23 @@ describe("start fallback", () => {
       assert.equal(callsTo(r, `${EXA_RUNS}/`).length, 0);
     });
   }
+
+  for (const status of [500, 502, 504]) {
+    it(`Exa start HTTP ${status} is NOT retried elsewhere (the run may exist): exit 1 with a warning`, async () => {
+      const r = await run(["research", Q, "--max-cost", "3"], { [`POST ${EXA_RUNS}`]: () => reply(status, { error: { message: "upstream" } }), ...tfHandlers });
+      assert.equal(r.code, 1);
+      assert.equal(callsTo(r, TF_START).length, 0, "no second (paid) run on the other provider");
+      assert.match(r.err, new RegExp(`exa: HTTP ${status}`));
+      assert.match(r.err, /may have reached exa and started a \(paid\) run, so it was not retried elsewhere/);
+    });
+  }
+
+  it("same rule when TinyFish is first in the order: its HTTP 504 does not start a run on Exa", async () => {
+    const r = await run(["research", Q, "--max-cost", "3"], { [`POST ${TF_START}`]: () => reply(504, {}) }, { env: { ...KEYS, WEB_PROVIDERS: "tinyfish,exa" } });
+    assert.equal(r.code, 1);
+    assert.equal(callsTo(r, EXA_RUNS).length, 0, "no second (paid) run on Exa");
+    assert.match(r.err, /may have reached tinyfish and started a \(paid\) run/);
+  });
 
   it("connection refused -> TinyFish", async () => {
     const r = await run(["research", Q, "--max-cost", "3"], {
