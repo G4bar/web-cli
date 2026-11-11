@@ -239,7 +239,7 @@ async function withFallback(order, fn) {
 
 // ---------- commands ----------
 function printResults(q, provider, results, cost) {
-  console.log(`# ${q} — ${provider}, ${results.length} results${cost ? `, $${cost}` : ""}`);
+  console.log(`# ${q} — ${provider}, ${results.length} result${results.length === 1 ? "" : "s"}${cost ? `, $${cost}` : ""}`);
   results.forEach((r, i) => {
     console.log(`\n${i + 1}. ${r.title || "(untitled)"}\n   ${r.url}${r.date ? `  (${r.date})` : ""}`);
     if (r.text) console.log(`   ${r.text}`);
