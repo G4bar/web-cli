@@ -2,6 +2,7 @@
 import { HELP, parseCli } from "./args.mjs";
 import { answer } from "./commands/answer.mjs";
 import { fetchPages } from "./commands/fetch.mjs";
+import { researchCancel, researchStatus, startResearch } from "./commands/research.mjs";
 import { search } from "./commands/search.mjs";
 import { EXIT, ExitError, UsageError } from "./errors.mjs";
 import { log } from "./util.mjs";
@@ -68,8 +69,20 @@ export async function main(argv, ctx) {
         if (!rest.length) throw new UsageError("usage: web fetch <url...>");
         await fetchPages(ctx, rest, opts);
         break;
+      case "research": {
+        const q = rest.join(" ").trim();
+        if (!q) throw new UsageError('usage: web research "<question>" --max-cost <usd>  |  web research status <id>  |  web research cancel <id>');
+        await startResearch(ctx, q, opts);
+        break;
+      }
+      case "status":
+      case "cancel": {
+        if (rest.length !== 1) throw new UsageError(`usage: web research ${cmd} <id>`);
+        await (cmd === "status" ? researchStatus : researchCancel)(ctx, rest[0], opts);
+        break;
+      }
       default:
-        throw new UsageError(`unknown command "${cmd}" (search | fetch | answer). See: web --help`);
+        throw new UsageError(`unknown command "${cmd}" (search | fetch | answer | research). See: web --help`);
     }
     return EXIT.OK;
   } catch (e) {

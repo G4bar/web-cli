@@ -97,3 +97,9 @@ export function dedupeCitations(/** @type {Citation[]} */ cits) {
   }
   return out;
 }
+
+/** 83000 -> "1m23s" */
+export function fmtDuration(/** @type {number} */ ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s` : `${s}s`;
+}

@@ -1,7 +1,7 @@
 {
   "name": "web-cli",
-  "version": "0.1.0",
-  "description": "Web search, page fetch and cited answers for coding agents. Exa with automatic TinyFish fallback. Zero dependencies.",
+  "version": "0.2.0",
+  "description": "Web search, page fetch, cited answers and paid deep research for coding agents. Exa with automatic TinyFish fallback. Zero runtime dependencies.",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -10,6 +10,7 @@
   "files": [
     "skills",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "keywords": [

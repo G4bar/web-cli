@@ -40,6 +40,11 @@
  * @property {Record<string, any>=} schema
  * @property {boolean} fresh
  * @property {boolean} links
+ * @property {number=} maxCost           USD
+ * @property {string=} effort
+ * @property {string=} mode
+ * @property {number} waitMin
+ * @property {boolean} detach
  * @property {Set<string>} given         long names of the flags the user passed
  */
 
@@ -89,6 +94,30 @@
  */
 
 /**
+ * Normalised state of an asynchronous research run.
+ *
+ * @typedef {Object} ResearchRun
+ * @property {string} id                 provider-prefixed ("exa:...", "tinyfish:...")
+ * @property {string} provider
+ * @property {"queued" | "running" | "completed" | "failed" | "cancelled" | "timed_out"} status
+ * @property {string=} text
+ * @property {any=} structured
+ * @property {Citation[]} sources
+ * @property {number=} cost
+ * @property {boolean} costEstimated     true when cost is the published list price, not a measured value
+ * @property {string=} reason            stop / termination reason
+ * @property {string=} error
+ */
+
+/**
+ * @typedef {Object} ResearchApi
+ * @property {(o: Opts) => { ok: true, price?: string } | { ok: false, reason: string }} check
+ * @property {(ctx: Ctx, q: string, o: Opts) => Promise<ResearchRun>} start
+ * @property {(ctx: Ctx, rawId: string) => Promise<ResearchRun>} get
+ * @property {(ctx: Ctx, rawId: string) => Promise<ResearchRun>} cancel
+ */
+
+/**
  * @typedef {Object} Provider
  * @property {"exa" | "tinyfish"} name
  * @property {string} keyName
@@ -98,8 +127,9 @@
  * @property {(ctx: Ctx, q: string, o: Opts) => Promise<SearchOutput>} search
  * @property {(ctx: Ctx, urls: string[], o: Opts) => Promise<FetchOutput>} fetch
  * @property {((ctx: Ctx, q: string, o: Opts) => Promise<AnswerOutput>)=} answer
+ * @property {ResearchApi} research
  */
 
-/** @typedef {"search" | "answer" | "fetch"} Op */
+/** @typedef {"search" | "answer" | "fetch" | "research"} Op */
 
 export {};

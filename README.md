@@ -1,6 +1,6 @@
 # web-cli
 
-Web search, page fetch and cited answers from the command line, built for coding agents.
+Web search, page fetch, cited answers and (optionally, paid) deep research from the command line, built for coding agents.
 Uses [Exa](https://exa.ai) first and falls back to [TinyFish](https://www.tinyfish.ai) automatically.
 
 - **Zero runtime dependencies.** Node 22+ and `fetch`, nothing to install. Plain `.mjs`, no build step.
@@ -56,6 +56,8 @@ Agents without skills: point them at `skills/web/SKILL.md` or at `web --help`.
 web search "query" [-n 8] [--site a.com,b.org] [--exclude x.com] [--recent 7d] [--cat news|papers|...] [--goal "..."] [--country US] [--lang en]
 web fetch  <url...> [--max 8000] [--focus "what you need"] [--fresh] [--links]
 web answer "question" [--deep [--fast]] [--schema file.json|'{...}']
+web research "question" --max-cost 1 [--effort low] [--wait 15] [--detach]   # paid, see below
+web research status <id>   |   web research cancel <id>
 ```
 
 | Command | What it does |
@@ -63,6 +65,7 @@ web answer "question" [--deep [--fast]] [--schema file.json|'{...}']
 | `search` | Ranked results with title, URL, date and a short excerpt. |
 | `fetch` | Page as markdown, up to 10 URLs per call. `--focus` returns only the matching passages; `--max` caps the size; `--fresh` bypasses the cache; `--links` appends the page's outbound links. |
 | `answer` | Short answer with citations (Exa `/answer`). `--deep` synthesizes with Exa deep search instead, `--schema` returns structured JSON. On TinyFish, which has no answer endpoint, it returns search results instead. |
+| `research` | **Paid**, asynchronous deep research with a cited report (Exa Agent, TinyFish Research as fallback). Needs `--max-cost`. See [Research](#research-paid). |
 
 Options:
 
@@ -96,7 +99,7 @@ Environment:
 
 Results go to stdout; provider errors and fallback notices go to stderr, so an agent sees when a fallback happened.
 
-Exit codes: `0` ok, `1` every provider failed, `2` bad usage or a request the provider rejected (HTTP 400/422), `3` `fetch` partially failed (failed URLs are listed on stderr).
+Exit codes: `0` ok, `1` every provider failed (or a research run failed), `2` bad usage or a request the provider rejected (HTTP 400/422), `3` `fetch` partially failed (failed URLs are listed on stderr), `4` `research` is still running.
 
 ## How the fallback works
 
@@ -107,6 +110,40 @@ Exit codes: `0` ok, `1` every provider failed, `2` bad usage or a request the pr
 - When TinyFish serves a request, every flag it cannot honour (`--type`, `--chars`, `--cat company|people|personal|financial`) is reported on stderr instead of being dropped silently.
 - `fetch` falls back per URL: URLs Exa could not read are retried on TinyFish, the others are kept.
 
+## Research (paid)
+
+`web research` runs a multi-step agent that searches, reads and writes a cited report. It is **not free** and takes seconds to many minutes, so use it deliberately.
+
+```bash
+web research "How do the main vector databases compare on filtered search?" --max-cost 1
+web research "..." --max-cost 5 --effort high            # Exa: more thorough, $0.50 per run
+web research "..." --max-cost 3 -p tinyfish --mode max   # TinyFish Research
+web research "..." --max-cost 1 --detach                 # start, print the id, exit 0
+web research status exa:agent_run_...                    # state / report of a run
+web research cancel exa:agent_run_...
+```
+
+| Flag | Meaning |
+|---|---|
+| `--max-cost <usd>` | **Required.** The most you are willing to spend. Without it the command exits 2 and nothing is started. |
+| `-p exa\|tinyfish` | Default: Exa; TinyFish only if the run cannot be *started* on Exa. |
+| `--effort <e>` | Exa Agent: `minimal` ($0.012 per run), `low` ($0.025, default), `medium` ($0.10), `high` ($0.50), `xhigh` ($1.00), `auto` / `ultra` (metered, up to `--max-cost`). |
+| `--mode <m>` | TinyFish Research: `deep` ($2, default) or `max` ($3). |
+| `--schema <file\|json>` | Exa only: structured output (printed as JSON). TinyFish Research has no structured output and is skipped when a schema is given. |
+| `--wait <minutes>` | How long to wait for the result (default 15). |
+| `--detach` | Start the run, print its id and exit 0. |
+| `--json` | The normalized run as JSON. |
+
+**Cost rules.** `--max-cost` is checked before anything is sent. Exa's `budget.maxCostDollars` accepts $1 to $100, so `--max-cost` must be at least 1 for Exa (for a fixed effort the budget only caps optional contact enrichment and must cover the effort's price; for `auto` and `ultra` it caps the whole run). TinyFish Research costs $2 (`deep`) or $3 (`max`), charged when a run completes, so it is refused when `--max-cost` is lower. A provider that cannot run within `--max-cost` is refused with the reason (exit 2 when none can, or when you forced it with `-p`). TinyFish reports no cost in its responses: completed runs are shown at list price, failed, cancelled and timed-out runs as not charged.
+
+**Run ids** are prefixed with the provider, `exa:<id>` or `tinyfish:<id>`; `status` and `cancel` route by the prefix. The id is printed on stderr the moment the run starts, before any waiting.
+
+**Waiting.** By default the command blocks, polling with backoff (5 s growing to 30 s) and writing progress to stderr. If the run is not finished after `--wait` minutes it prints the id and how to resume, leaves the run going, and exits **4**. `web research status <id>` exits 0 when completed, 4 while running, 1 when the run failed, was cancelled or timed out. Giving up waiting never cancels a run; `web research cancel <id>` does (Exa bills what accrued up to that point).
+
+**Fallback only happens when starting a run fails**, and only when it is certain that no run exists: the provider refused with an HTTP error other than 400/422 (typically 401, 402, 403, 429 or 5xx) or the connection could not be established. HTTP 400/422 exit 2. A start that **times out or drops the connection** may have created a run, so it is *not* retried on the other provider (that could pay twice); the error says so. Once a run has started there is no fallback: a failing poll is retried a few times, then the command exits 1 with the id so you can resume later.
+
+Output: the report, then its sources, then cost and the stop reason (Exa `stopReason`, e.g. `schema_satisfied`; TinyFish `termination_reason`, e.g. `planner_done`; `synthesis_failed` means interim findings only).
+
 ## Provider differences
 
 | | Exa | TinyFish |
@@ -114,8 +151,9 @@ Exit codes: `0` ok, `1` every provider failed, `2` bad usage or a request the pr
 | Search | Semantic, excerpts picked for the query, all filters and categories | Ranked web results with snippets (up to `-n`, fetched in pages of 10), `news` and `papers` categories. For `papers`, `--since/--until/--recent` apply to the publication year |
 | Fetch `--focus` | Semantic highlights | Local keyword-based passage filter on the full page |
 | Answer | Yes (`/answer`, or deep search with `--deep`) | No (search results instead) |
-| Links (`fetch --links`) | Main-content links | Every `<a href>` on the page |
-| Cost | Paid per request (about $0.007 per search, $0.005 per answer) | Free daily allowance, see [their pricing](https://www.tinyfish.ai/pricing) |
+| Links (`fetch --links`) | The links Exa extracts from the page (in a spot check 4, where TinyFish listed 26) | Every `<a href>` on the page |
+| Research | Agent API, $0.012 to $1.00 per run by effort, or metered | Research API, $2 / $3 per run, charged on completion (the pricing page also mentions free runs per day; `--max-cost` is always checked against the list price) |
+| Cost | Paid per request (about $0.007 per search, $0.005 per answer, $0.012 for a deep answer) | Search and fetch free within a daily allowance, see [their pricing](https://www.tinyfish.ai/pricing) |
 
 Check each provider's docs for current limits and pricing: [Exa](https://exa.ai/docs), [TinyFish](https://docs.tinyfish.ai/).
 

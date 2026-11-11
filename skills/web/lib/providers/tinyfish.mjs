@@ -6,10 +6,12 @@ import { clean, envVar, focusText, ignoredFlags, log, urlKey } from "../util.mjs
 /** @typedef {import("../types.mjs").Ctx} Ctx */
 /** @typedef {import("../types.mjs").Opts} Opts */
 /** @typedef {import("../types.mjs").Provider} Provider */
+/** @typedef {import("../types.mjs").ResearchRun} ResearchRun */
 /** @typedef {import("../types.mjs").SearchResult} SearchResult */
 
 const SEARCH_URL = "https://api.search.tinyfish.ai";
 const FETCH_URL = "https://api.fetch.tinyfish.ai";
+const AGENT_URL = "https://agent.tinyfish.ai";
 
 const TF_DOMAIN = /** @type {Record<string, string>} */ ({ news: "news", papers: "research_paper" });
 /** Exa-only categories: TinyFish searches the plain web instead. */
@@ -19,6 +21,9 @@ const EXA_ONLY_CATS = ["company", "people", "personal", "financial"];
 const PAGE_SIZE = 10;
 const MAX_PAGE = 10;
 const MAX_RECENCY_MIN = 5_256_000;
+
+/** Published research prices (USD per completed run). */
+export const RESEARCH_PRICE = /** @type {Record<string, number>} */ ({ deep: 2, max: 3 });
 
 /** Per-URL timeout sent to the Fetch API: below the client timeout, within the API's 1..110000 ms. */
 export function perUrlTimeout(/** @type {number} */ clientTimeout) {
@@ -73,6 +78,29 @@ async function searchPage(ctx, q, o, page) {
   return call(`${SEARCH_URL}?${p}`, { headers: headers(ctx), timeout: timeoutFor(ctx, 30_000) });
 }
 
+/** @param {any} j  TinyFish research run */
+function normalizeRun(j) {
+  /** @type {Record<string, ResearchRun["status"]>} */
+  const statuses = { QUEUED: "queued", RUNNING: "running", COMPLETED: "completed", FAILED: "failed", CANCELLED: "cancelled", TIMED_OUT: "timed_out" };
+  const status = statuses[j.status] ?? "running"; // unknown states: keep polling
+  const deep = j.deep_result ?? {};
+  /** @type {string[]} */
+  const cites = Array.isArray(deep.citations) ? deep.citations : [];
+  return /** @type {ResearchRun} */ ({
+    id: `tinyfish:${j.research_run_id}`,
+    provider: "tinyfish",
+    status,
+    text: typeof deep.result === "string" && deep.result.trim() ? deep.result : undefined,
+    sources: cites.filter((u) => typeof u === "string").map((url) => ({ title: "", url })),
+    // The API reports no cost. Failed, cancelled and timed-out runs are not charged; a
+    // completed run costs the mode's list price, which the command fills in when it knows the mode.
+    cost: status === "failed" || status === "cancelled" || status === "timed_out" ? 0 : undefined,
+    costEstimated: true,
+    reason: deep.termination_reason ?? undefined,
+    error: j.error ? `${j.error.code ?? "error"}: ${j.error.message ?? ""}`.trim() : undefined,
+  });
+}
+
 /** @type {Provider} */
 export const tinyfish = {
   name: "tinyfish",
@@ -93,6 +121,8 @@ export const tinyfish = {
       }
       if (o.recentMin && o.recentMin > MAX_RECENCY_MIN && o.cat !== "papers") out.push("--recent capped at 10 years");
       if (op === "answer") out.push(...no(["deep", "fast", "schema"], "has no effect (TinyFish has no answer endpoint; returning search results)"));
+    } else if (op === "research") {
+      out.push(...no(["effort"], "has no effect (Exa only)"));
     }
     return out;
   },
@@ -160,5 +190,50 @@ export const tinyfish = {
     }
     for (const e of j.errors ?? []) log(ctx, `tinyfish: ${e.url}: ${clean(e.error)}${e.status ? ` (HTTP ${e.status})` : ""}`);
     return { pages };
+  },
+
+  research: {
+    check(o) {
+      const mode = o.mode ?? "deep";
+      const price = RESEARCH_PRICE[mode];
+      if (o.schema) return { ok: false, reason: "TinyFish Research has no structured output (--schema)" };
+      if (price > (o.maxCost ?? 0)) return { ok: false, reason: `TinyFish Research "${mode}" costs $${price} per run, above --max-cost $${o.maxCost}` };
+      return { ok: true, price: `$${price} list price, charged on completion` };
+    },
+
+    async start(ctx, q, o) {
+      const mode = o.mode ?? "deep";
+      const j = await call(`${AGENT_URL}/v1/automation/run-research-async`, {
+        method: "POST",
+        headers: headers(ctx),
+        body: { query: q, mode },
+        timeout: timeoutFor(ctx, 30_000),
+      });
+      // A 200 can still carry a creation error; no run exists in that case.
+      if (j.error || !j.research_run_id) {
+        throw new ProviderError("bad_response", `run not created${j.error ? `: ${j.error.code ?? ""} ${j.error.message ?? ""}`.trimEnd() : ""}`, { code: "not_created" });
+      }
+      const run = normalizeRun({ research_run_id: j.research_run_id, status: "QUEUED" });
+      run.cost = RESEARCH_PRICE[mode]; // expected, charged on completion
+      return run;
+    },
+
+    async get(ctx, rawId) {
+      return normalizeRun(await call(`${AGENT_URL}/v1/research-run/${encodeURIComponent(rawId)}`, { headers: headers(ctx), timeout: timeoutFor(ctx, 30_000) }));
+    },
+
+    async cancel(ctx, rawId) {
+      const j = await call(`${AGENT_URL}/v1/research-run/${encodeURIComponent(rawId)}/cancel`, {
+        method: "POST",
+        headers: headers(ctx),
+        timeout: timeoutFor(ctx, 30_000),
+      });
+      // The cancel response carries only the status; fetch the full run for a uniform result.
+      try {
+        return await tinyfish.research.get(ctx, rawId);
+      } catch {
+        return normalizeRun({ research_run_id: rawId, status: j.status });
+      }
+    },
   },
 };

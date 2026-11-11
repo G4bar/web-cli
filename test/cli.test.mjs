@@ -19,7 +19,7 @@ describe("web binary", () => {
   it("--help exits 0 and documents every command", () => {
     const r = web(["--help"]);
     assert.equal(r.code, 0);
-    for (const s of ["web search", "web fetch", "web answer"]) assert.ok(r.out.includes(s), s);
+    for (const s of ["web search", "web fetch", "web answer", "web research", "--max-cost"]) assert.ok(r.out.includes(s), s);
   });
 
   it("no arguments: help and exit 2", () => {

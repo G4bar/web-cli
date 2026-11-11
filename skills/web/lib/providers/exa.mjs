@@ -6,6 +6,7 @@ import { clean, dedupeCitations, envVar, ignoredFlags, log } from "../util.mjs";
 /** @typedef {import("../types.mjs").Ctx} Ctx */
 /** @typedef {import("../types.mjs").Opts} Opts */
 /** @typedef {import("../types.mjs").Provider} Provider */
+/** @typedef {import("../types.mjs").ResearchRun} ResearchRun */
 
 const BASE = "https://api.exa.ai";
 
@@ -22,6 +23,12 @@ export const EXA_CAT = /** @type {Record<string, string>} */ ({
 /** `/search` types: current ones first, then the legacy aliases Exa still accepts. */
 export const EXA_TYPES = ["auto", "lite", "deep-lite", "deep"];
 export const EXA_LEGACY_TYPES = ["instant", "fast", "deep-reasoning"];
+
+/** Exa Agent fixed prices per request (USD). `auto` and `ultra` are metered. */
+const AGENT_PRICE = /** @type {Record<string, number>} */ ({ minimal: 0.012, low: 0.025, medium: 0.1, high: 0.5, xhigh: 1 });
+export const AGENT_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "auto", "ultra"];
+/** Smallest `budget.maxCostDollars` the Agent API accepts. */
+const AGENT_MIN_BUDGET = 1;
 
 /** Links requested per page; the command trims them again after cleaning. */
 const LINKS_REQUESTED = 500;
@@ -53,6 +60,26 @@ const citation = (c) => ({ title: clean(c.title), url: c.url });
 /** Auth header for every Exa request. */
 const headers = (/** @type {Ctx} */ ctx) => ({ "x-api-key": envVar(ctx, "EXA_API_KEY") });
 
+/** @param {any} j  Exa AgentRun */
+function normalizeRun(j) {
+  const out = j.output ?? {};
+  /** @type {any[]} */
+  const grounding = Array.isArray(out.grounding) ? out.grounding : [];
+  const known = ["queued", "running", "completed", "failed", "cancelled"];
+  return /** @type {ResearchRun} */ ({
+    id: `exa:${j.id}`,
+    provider: "exa",
+    status: known.includes(j.status) ? j.status : "running", // unknown states: keep polling
+    text: typeof out.text === "string" && out.text.trim() ? out.text : undefined,
+    structured: out.structured ?? undefined,
+    sources: dedupeCitations(grounding.flatMap((g) => (g.citations ?? []).map(citation))),
+    cost: j.costDollars?.total,
+    costEstimated: false,
+    reason: j.stopReason ?? undefined,
+    error: j.error ? `${j.error.code ?? j.error.type ?? "error"}: ${j.error.message}` : undefined,
+  });
+}
+
 /** @type {Provider} */
 export const exa = {
   name: "exa",
@@ -77,7 +104,8 @@ export const exa = {
     if (op === "search") return no(["lang"], "has no effect (Exa has no language filter)");
     if (op === "answer" && o.deep) return no(["type", "chars", "lang"], "has no effect with --deep");
     if (op === "answer") return no(["n", "site", "exclude", "recent", "since", "until", "cat", "type", "chars", "goal", "lang"], "has no effect on /answer (add --deep to search with filters)");
-    return no(["goal"], "has no effect (Exa fetch has no goal parameter)");
+    if (op === "fetch") return no(["goal"], "has no effect (Exa fetch has no goal parameter)");
+    return no(["mode"], "has no effect (TinyFish only)");
   },
 
   async search(ctx, q, o) {
@@ -152,6 +180,38 @@ export const exa = {
       answer: a,
       citations: (j.citations ?? []).map((/** @type {any} */ c) => ({ title: clean(c.title), url: c.url, date: c.publishedDate?.slice(0, 10) })),
     };
+  },
+
+  research: {
+    check(o) {
+      const effort = o.effort ?? "low";
+      const max = o.maxCost ?? 0;
+      if (max < AGENT_MIN_BUDGET) {
+        return { ok: false, reason: `Exa Agent needs --max-cost >= $${AGENT_MIN_BUDGET} (minimum for budget.maxCostDollars)` };
+      }
+      const price = AGENT_PRICE[effort];
+      if (price !== undefined && price > max) {
+        return { ok: false, reason: `Exa Agent effort "${effort}" costs $${price} per run, above --max-cost $${max}` };
+      }
+      return { ok: true, price: price !== undefined ? `$${price} fixed` : `metered, capped at $${max}` };
+    },
+
+    async start(ctx, q, o) {
+      /** @type {Record<string, any>} */
+      const body = { query: q, effort: o.effort ?? "low", budget: { maxCostDollars: o.maxCost } };
+      if (o.schema) body.outputSchema = o.schema;
+      const j = await call(`${BASE}/agent/runs`, { method: "POST", headers: headers(ctx), body, timeout: timeoutFor(ctx, 30_000) });
+      if (!j.id) throw new ProviderError("bad_response", "no run id in response");
+      return normalizeRun(j);
+    },
+
+    async get(ctx, rawId) {
+      return normalizeRun(await call(`${BASE}/agent/runs/${encodeURIComponent(rawId)}`, { headers: headers(ctx), timeout: timeoutFor(ctx, 30_000) }));
+    },
+
+    async cancel(ctx, rawId) {
+      return normalizeRun(await call(`${BASE}/agent/runs/${encodeURIComponent(rawId)}/cancel`, { method: "POST", headers: headers(ctx), timeout: timeoutFor(ctx, 30_000) }));
+    },
   },
 };
 

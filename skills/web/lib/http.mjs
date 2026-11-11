@@ -50,7 +50,7 @@ export async function call(url, { method = "GET", headers = {}, body, timeout })
     if (err?.name === "TimeoutError" || err?.name === "AbortError") {
       throw new ProviderError("timeout", `timeout after ${timeout}ms`);
     }
-    throw new ProviderError("network", `network: ${err?.cause?.code ?? err?.message ?? String(e)}`);
+    throw new ProviderError("network", `network: ${err?.cause?.code ?? err?.message ?? String(e)}`, { code: err?.cause?.code });
   }
 
   /** @type {any} */

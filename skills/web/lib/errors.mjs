@@ -3,9 +3,10 @@
 /** Exit codes shared by every command. */
 export const EXIT = Object.freeze({
   OK: 0,
-  FAILED: 1, // every provider failed
+  FAILED: 1, // every provider failed / a run ended unsuccessfully
   USAGE: 2, // bad usage, or a caller error (HTTP 400/422) reported by a provider
   PARTIAL: 3, // fetch: some URLs failed
+  RUNNING: 4, // research: the run is still going
 });
 
 /** The user asked for something invalid. Maps to exit code 2. */
