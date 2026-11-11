@@ -1,0 +1,35 @@
+{
+  "name": "web-cli",
+  "version": "0.1.0",
+  "description": "Web search, page fetch and cited answers for coding agents. Exa with automatic TinyFish fallback. Zero dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "web": "skills/web/web.mjs"
+  },
+  "files": [
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "agent-skill",
+    "web-search",
+    "exa",
+    "tinyfish",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/G4bar/web-cli.git"
+  },
+  "pi": {
+    "skills": [
+      "./skills"
+    ]
+  }
+}
